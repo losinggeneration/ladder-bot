@@ -1,0 +1,5 @@
+config.go
+database.sql
+
+*~
+/vendor/

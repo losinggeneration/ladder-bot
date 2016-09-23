@@ -1,0 +1,18 @@
+hash: 6ef4aaa5945782c776a2547dd7b12423c053ed923598df4191dccafd32254c64
+updated: 2016-09-23T00:05:33.332938912-07:00
+imports:
+- name: github.com/jmoiron/sqlx
+  version: 05b81a7d5d38058e42148dc01f17daf4acba4640
+  subpackages:
+  - reflectx
+- name: github.com/mattn/go-sqlite3
+  version: 3fb7a0e792edd47bf0cf1e919dfc14e2be412e15
+- name: github.com/nlopes/slack
+  version: 8b6fdb00c8635e19a736c83310e49951fec6802b
+- name: github.com/pkg/errors
+  version: 17b591df37844cde689f4d5813e5cea0927d8dd2
+- name: golang.org/x/net
+  version: 6d3beaea10370160dea67f5c9327ed791afd5389
+  subpackages:
+  - websocket
+testImports: []

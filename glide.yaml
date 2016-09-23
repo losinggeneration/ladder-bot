@@ -1,0 +1,6 @@
+package: .
+import:
+- package: github.com/nlopes/slack
+- package: github.com/mattn/go-sqlite3
+- package: github.com/pkg/errors
+- package: github.com/jmoiron/sqlx
