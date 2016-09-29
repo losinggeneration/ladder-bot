@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -341,6 +342,9 @@ func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 }
 
 func main() {
+	debug := flag.Bool("debug", false, "enable debugging")
+	flag.Parse()
+
 	if err := setup(); err != nil {
 		log.Fatalf("%+v", err)
 	}
@@ -357,6 +361,7 @@ func main() {
 
 	botID = auth.UserID
 
+	setDebug(*debug)
 	log.Println("started ", os.Args[0])
 
 	for {
@@ -364,7 +369,7 @@ func main() {
 		case e := <-rtm.IncomingEvents:
 			switch evt := e.Data.(type) {
 			case *slack.MessageEvent:
-				log.Printf("%#v", evt)
+				Debugf("%#v", evt)
 				if evt.BotID == "" {
 					cmd := checkMessage(evt.Msg)
 					if err := runCommand(cmd, rtm, evt); err != nil {
@@ -372,7 +377,7 @@ func main() {
 					}
 				}
 			default:
-				log.Printf("%#v", evt)
+				Debugf("%#v", evt)
 			}
 		}
 	}
