@@ -49,18 +49,20 @@ func (c commands) Print() string {
 var db *sqlx.DB
 var botID string
 
-func init() {
+func setup() error {
 	var err error
 	db, err = sqlx.Connect("sqlite3", "database.sql")
 	if err != nil {
-		log.Fatalf("%+v", err)
+		return err
 	}
 
 	if err := createLadderTable(); err != nil {
-		log.Fatalf("%+v", err)
+		return err
 	}
 
 	rand.Seed(time.Now().UnixNano())
+
+	return nil
 }
 
 func createLadderTable() error {
@@ -339,6 +341,10 @@ func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 }
 
 func main() {
+	if err := setup(); err != nil {
+		log.Fatalf("%+v", err)
+	}
+
 	api := slack.New(accessToken)
 
 	rtm := api.NewRTM()
