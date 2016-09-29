@@ -47,6 +47,7 @@ func (c commands) Print() string {
 }
 
 var db *sqlx.DB
+var botID string
 
 func init() {
 	var err error
@@ -65,7 +66,7 @@ func init() {
 func createLadderTable() error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS ladder (
 		id INTEGER NOT NULL PRIMARY KEY,
-		group_id TEXT,
+		channel_id TEXT,
 		user_id TEXT,
 		rank INTEGER
 	)`)
@@ -88,15 +89,15 @@ type errNotFound struct{}
 func (errNotFound) Error() string { return "not found" }
 
 type Ladder struct {
-	ID      int64  `db:"id"`
-	GroupID string `db:"group_id"`
-	UserID  string `db:"user_id"`
-	Rank    int64  `db:"rank"`
+	ID        int64  `db:"id"`
+	ChannelID string `db:"channel_id"`
+	UserID    string `db:"user_id"`
+	Rank      int64  `db:"rank"`
 }
 
-func getUser(userID, groupID string) (*Ladder, error) {
+func getUser(userID, channelID string) (*Ladder, error) {
 	l := []Ladder{}
-	err := db.Select(&l, `SELECT id, group_id, user_id, rank FROM ladder WHERE user_id=? AND group_id=?`, userID, groupID)
+	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE user_id=? AND channel_id=?`, userID, channelID)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to select from ladder")
 	}
@@ -108,9 +109,9 @@ func getUser(userID, groupID string) (*Ladder, error) {
 	return &l[0], nil
 }
 
-func getUserAbove(groupID string, rank int64) (*Ladder, error) {
+func getUserAbove(channelID string, rank int64) (*Ladder, error) {
 	l := []Ladder{}
-	err := db.Select(&l, `SELECT id, group_id, user_id, rank FROM ladder WHERE group_id=? AND rank<=? ORDER BY rank DESC`, groupID, rank-1)
+	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? AND rank<=? ORDER BY rank DESC`, channelID, rank-1)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to select from ladder")
 	}
@@ -122,9 +123,9 @@ func getUserAbove(groupID string, rank int64) (*Ladder, error) {
 	return &l[0], nil
 }
 
-func getLadder(groupID string) ([]Ladder, error) {
+func getLadder(channelID string) ([]Ladder, error) {
 	l := []Ladder{}
-	err := db.Select(&l, `SELECT id, group_id, user_id, rank FROM ladder WHERE group_id=? ORDER BY rank`, groupID)
+	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? ORDER BY rank`, channelID)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get ladder")
 	}
@@ -132,59 +133,59 @@ func getLadder(groupID string) ([]Ladder, error) {
 	return l, nil
 }
 
-func clearLadder(groupID string) error {
-	_, err := db.Exec(`DELETE FROM ladder WHERE group_id=?`, groupID)
+func clearLadder(channelID string) error {
+	_, err := db.Exec(`DELETE FROM ladder WHERE channel_id=?`, channelID)
 	return errors.Wrap(err, "unable to delete ladder group")
 }
 
 func insertOrUpdate(l Ladder) error {
-	existing, err := getUser(l.UserID, l.GroupID)
+	existing, err := getUser(l.UserID, l.ChannelID)
 	if err != nil {
 		if _, ok := err.(errNotFound); ok {
-			_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (group_id, user_id, rank) VALUES(:group_id, :user_id, :rank)`, &l)
+			_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (channel_id, user_id, rank) VALUES(:channel_id, :user_id, :rank)`, &l)
 		} else {
 			return errors.Wrap(err, "unable to select from ladder")
 		}
 	} else {
 		existing.Rank = l.Rank
-		_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (id, group_id, user_id, rank) VALUES(:id, :group_id, :user_id, :rank)`, existing)
+		_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (id, channel_id, user_id, rank) VALUES(:id, :channel_id, :user_id, :rank)`, existing)
 	}
 
 	return errors.Wrap(err, "unable to insert/update into ladder")
 }
 
-func rank(rtm *slack.RTM, user, group string) error {
-	u, err := getUser(user, group)
+func rank(rtm *slack.RTM, msg slack.Msg) error {
+	u, err := getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
 
-	g, err := rtm.GetGroupInfo(group)
+	us, err := rtm.GetUserInfo(msg.User)
 	if err != nil {
 		return err
 	}
 
-	us, err := rtm.GetUserInfo(user)
+	members, err := getMembers(rtm, msg.Channel)
 	if err != nil {
 		return err
 	}
 
-	message := fmt.Sprintf("%s\t%d/%d", us.RealName, u.Rank+1, len(g.Members)-1)
-	return sendMessage(rtm, group, message)
+	message := fmt.Sprintf("%s\t%d/%d", us.RealName, u.Rank+1, len(members)-1)
+	return sendMessage(rtm, msg.Channel, message)
 }
 
-func challenge(rtm *slack.RTM, user, group string) error {
-	challenger, err := getUser(user, group)
+func challenge(rtm *slack.RTM, msg slack.Msg) error {
+	challenger, err := getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
 
-	challenged, err := getUserAbove(group, challenger.Rank)
+	challenged, err := getUserAbove(msg.Channel, challenger.Rank)
 	if err != nil {
 		return err
 	}
 
-	u, err := rtm.GetUserInfo(user)
+	u, err := rtm.GetUserInfo(msg.User)
 	if err != nil {
 		return errors.Wrap(err, "unable to get user info")
 	}
@@ -196,15 +197,11 @@ func challenge(rtm *slack.RTM, user, group string) error {
 
 	message := fmt.Sprintf("<@%s|%s> you've been challenged by %s (<@%s|%s>)\n", c.ID, c.Name, u.RealName, u.ID, u.Name)
 
-	return sendMessage(rtm, group, message)
-	msg := rtm.NewOutgoingMessage(message, group)
-	rtm.SendMessage(msg)
-
-	return nil
+	return sendMessage(rtm, msg.Channel, message)
 }
 
-func won(rtm *slack.RTM, user, group string) error {
-	winner, err := getUser(user, group)
+func won(rtm *slack.RTM, msg slack.Msg) error {
+	winner, err := getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -214,7 +211,7 @@ func won(rtm *slack.RTM, user, group string) error {
 		return nil
 	}
 
-	loser, err := getUserAbove(group, winner.Rank)
+	loser, err := getUserAbove(msg.Channel, winner.Rank)
 	if err != nil {
 		return err
 	}
@@ -230,11 +227,11 @@ func won(rtm *slack.RTM, user, group string) error {
 	}
 
 	message := fmt.Sprintf("New Rank %d", winner.Rank+1)
-	return sendMessage(rtm, group, message)
+	return sendMessage(rtm, msg.Channel, message)
 }
 
-func board(rtm *slack.RTM, group string) error {
-	ladder, err := getLadder(group)
+func board(rtm *slack.RTM, msg slack.Msg) error {
+	ladder, err := getLadder(msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -253,22 +250,22 @@ func board(rtm *slack.RTM, group string) error {
 		message += fmt.Sprintf("%s\t%v\n", name, u.Rank+1)
 	}
 
-	return sendMessage(rtm, group, message)
-	msg := rtm.NewOutgoingMessage(message, group)
-	rtm.SendMessage(msg)
-
-	return nil
+	return sendMessage(rtm, msg.Channel, message)
 }
 
-func shuffle(rtm *slack.RTM, botID string, group *slack.Group) error {
-	if err := clearLadder(group.ID); err != nil {
+func shuffle(rtm *slack.RTM, msg slack.Msg) error {
+	if err := clearLadder(msg.Channel); err != nil {
 		return err
 	}
 
+	members, err := getMembers(rtm, msg.Channel)
+	if err != nil {
+		return err
+	}
 	// length is one less because the bot is in the group
-	ml := len(group.Members) - 1
+	ml := len(members) - 1
 	ranks := make(map[int64]Ladder)
-	for _, member := range group.Members {
+	for _, member := range members {
 		if member == botID {
 			continue
 		}
@@ -276,9 +273,9 @@ func shuffle(rtm *slack.RTM, botID string, group *slack.Group) error {
 			r := rand.Int63() % int64(ml)
 			if _, ok := ranks[r]; !ok {
 				ranks[r] = Ladder{
-					GroupID: group.ID,
-					UserID:  member,
-					Rank:    r,
+					ChannelID: msg.Channel,
+					UserID:    member,
+					Rank:      r,
 				}
 				if err := insertOrUpdate(ranks[r]); err != nil {
 					return err
@@ -288,15 +285,25 @@ func shuffle(rtm *slack.RTM, botID string, group *slack.Group) error {
 		}
 	}
 
-	return board(rtm, group.ID)
+	return board(rtm, msg)
+}
+
+func getMembers(rtm *slack.RTM, channel string) ([]string, error) {
+	ch, cherr := rtm.GetChannelInfo(channel)
+	if cherr == nil {
+		return ch.Members, nil
+	}
+
+	gr, grerr := rtm.GetGroupInfo(channel)
+	if grerr == nil {
+		return gr.Members, nil
+	}
+
+	return nil, errors.Wrapf(grerr, "unable to get group or channel: %v", cherr)
 }
 
 func sendMessage(rtm *slack.RTM, channel, text string) error {
-	botID, err := getBotId(rtm)
-	if err != nil {
-		return err
-	}
-
+	var err error
 	for i := 0; i < 5; i++ {
 		params := slack.NewPostMessageParameters()
 		params.EscapeText = false
@@ -308,42 +315,27 @@ func sendMessage(rtm *slack.RTM, channel, text string) error {
 			break
 		}
 	}
+
 	return errors.Wrap(err, "unable to send message")
 }
 
-func runCommand(cmd command, botID string, rtm *slack.RTM, evt *slack.MessageEvent) error {
-	group, err := rtm.GetGroupInfo(evt.Channel)
-	if err != nil {
-		return errors.Wrapf(err, "unable to get group info %q", evt.Channel)
-	}
-
+func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 	switch cmd {
 	case rankCommand:
-		return rank(rtm, evt.Msg.User, group.ID)
+		return rank(rtm, evt.Msg)
 	case challengeCommand:
-		return challenge(rtm, evt.Msg.User, group.ID)
+		return challenge(rtm, evt.Msg)
 	case wonCommand:
-		return won(rtm, evt.Msg.User, group.ID)
+		return won(rtm, evt.Msg)
 	case boardCommand:
-		return board(rtm, group.ID)
+		return board(rtm, evt.Msg)
 	case shuffleCommand:
-		return shuffle(rtm, botID, group)
+		return shuffle(rtm, evt.Msg)
 	case helpCommand:
-		if err := sendMessage(rtm, evt.Channel, cmds.Print()); err == nil {
-			log.Printf("%+v", err)
-		}
+		return sendMessage(rtm, evt.Channel, cmds.Print())
 	}
 
 	return nil
-}
-
-func getBotId(rtm *slack.RTM) (string, error) {
-	auth, err := rtm.AuthTest()
-	if err != nil {
-		return "", errors.Wrap(err, "unable to get authenticated user")
-	}
-
-	return auth.UserID, nil
 }
 
 func main() {
@@ -352,10 +344,12 @@ func main() {
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
 
-	botID, err := getBotId(rtm)
+	auth, err := api.AuthTest()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	botID = auth.UserID
 
 	log.Println("started ", os.Args[0])
 
@@ -364,9 +358,10 @@ func main() {
 		case e := <-rtm.IncomingEvents:
 			switch evt := e.Data.(type) {
 			case *slack.MessageEvent:
-				if evt.Msg.User != botID {
+				log.Printf("%#v", evt)
+				if evt.BotID == "" {
 					cmd := checkMessage(evt.Msg)
-					if err := runCommand(cmd, botID, rtm, evt); err != nil {
+					if err := runCommand(cmd, rtm, evt); err != nil {
 						log.Printf("%+v", err)
 					}
 				}
