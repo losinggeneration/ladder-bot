@@ -106,7 +106,7 @@ func getUser(userID, channelID string) (*ladder, error) {
 	}
 
 	if len(l) == 0 {
-		return nil, errNotFound{}
+		return nil, errors.Wrap(errNotFound{}, "unable to get user")
 	}
 
 	return &l[0], nil
@@ -120,7 +120,7 @@ func getUserAbove(channelID string, rank int64) (*ladder, error) {
 	}
 
 	if len(l) == 0 {
-		return nil, errNotFound{}
+		return nil, errors.Wrap(errNotFound{}, "unable to get user above")
 	}
 
 	return &l[0], nil
@@ -144,7 +144,7 @@ func clearLadder(channelID string) error {
 func insertOrUpdate(l ladder) error {
 	existing, err := getUser(l.UserID, l.ChannelID)
 	if err != nil {
-		if _, ok := err.(errNotFound); ok {
+		if _, ok := errors.Cause(err).(errNotFound); ok {
 			_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (channel_id, user_id, rank) VALUES(:channel_id, :user_id, :rank)`, &l)
 		} else {
 			return errors.Wrap(err, "unable to select from ladder")
@@ -185,6 +185,9 @@ func challenge(rtm *slack.RTM, msg slack.Msg) error {
 
 	challenged, err := getUserAbove(msg.Channel, challenger.Rank)
 	if err != nil {
+		if _, ok := errors.Cause(err).(errNotFound); ok {
+			return nil
+		}
 		return err
 	}
 
