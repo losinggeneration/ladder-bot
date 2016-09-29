@@ -88,15 +88,15 @@ type errNotFound struct{}
 
 func (errNotFound) Error() string { return "not found" }
 
-type Ladder struct {
+type ladder struct {
 	ID        int64  `db:"id"`
 	ChannelID string `db:"channel_id"`
 	UserID    string `db:"user_id"`
 	Rank      int64  `db:"rank"`
 }
 
-func getUser(userID, channelID string) (*Ladder, error) {
-	l := []Ladder{}
+func getUser(userID, channelID string) (*ladder, error) {
+	l := []ladder{}
 	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE user_id=? AND channel_id=?`, userID, channelID)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to select from ladder")
@@ -109,8 +109,8 @@ func getUser(userID, channelID string) (*Ladder, error) {
 	return &l[0], nil
 }
 
-func getUserAbove(channelID string, rank int64) (*Ladder, error) {
-	l := []Ladder{}
+func getUserAbove(channelID string, rank int64) (*ladder, error) {
+	l := []ladder{}
 	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? AND rank<=? ORDER BY rank DESC`, channelID, rank-1)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to select from ladder")
@@ -123,8 +123,8 @@ func getUserAbove(channelID string, rank int64) (*Ladder, error) {
 	return &l[0], nil
 }
 
-func getLadder(channelID string) ([]Ladder, error) {
-	l := []Ladder{}
+func getLadder(channelID string) ([]ladder, error) {
+	l := []ladder{}
 	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? ORDER BY rank`, channelID)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get ladder")
@@ -138,7 +138,7 @@ func clearLadder(channelID string) error {
 	return errors.Wrap(err, "unable to delete ladder group")
 }
 
-func insertOrUpdate(l Ladder) error {
+func insertOrUpdate(l ladder) error {
 	existing, err := getUser(l.UserID, l.ChannelID)
 	if err != nil {
 		if _, ok := err.(errNotFound); ok {
@@ -264,7 +264,7 @@ func shuffle(rtm *slack.RTM, msg slack.Msg) error {
 	}
 	// length is one less because the bot is in the group
 	ml := len(members) - 1
-	ranks := make(map[int64]Ladder)
+	ranks := make(map[int64]ladder)
 	for _, member := range members {
 		if member == botID {
 			continue
@@ -272,7 +272,7 @@ func shuffle(rtm *slack.RTM, msg slack.Msg) error {
 		for {
 			r := rand.Int63() % int64(ml)
 			if _, ok := ranks[r]; !ok {
-				ranks[r] = Ladder{
+				ranks[r] = ladder{
 					ChannelID: msg.Channel,
 					UserID:    member,
 					Rank:      r,
