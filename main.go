@@ -126,6 +126,19 @@ func getUserAbove(channelID string, rank int64) (*ladder, error) {
 	return &l[0], nil
 }
 
+func getLastUser(channelID string) (*ladder, error) {
+	l, err := getLadder(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(l) == 0 {
+		return nil, errors.Wrap(errNotFound{}, "unable to get user below")
+	}
+
+	return &l[len(l)-1], nil
+}
+
 func getLadder(channelID string) ([]ladder, error) {
 	l := []ladder{}
 	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? ORDER BY rank`, channelID)
@@ -139,6 +152,11 @@ func getLadder(channelID string) ([]ladder, error) {
 func clearLadder(channelID string) error {
 	_, err := db.Exec(`DELETE FROM ladder WHERE channel_id=?`, channelID)
 	return errors.Wrap(err, "unable to delete ladder group")
+}
+
+func removeUser(l ladder) error {
+	_, err := db.Exec(`DELETE FROM ladder WHERE channel_id=? AND user_id=?`, l.ChannelID, l.UserID)
+	return errors.Wrap(err, "unable to delete user from ladder")
 }
 
 func insertOrUpdate(l ladder) error {
@@ -155,6 +173,16 @@ func insertOrUpdate(l ladder) error {
 	}
 
 	return errors.Wrap(err, "unable to insert/update into ladder")
+}
+
+func updateLadder(l []ladder) error {
+	for _, u := range l {
+		if err := insertOrUpdate(u); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func rank(rtm *slack.RTM, msg slack.Msg) error {
@@ -325,6 +353,44 @@ func sendMessage(rtm *slack.RTM, channel, text string) error {
 	return errors.Wrap(err, "unable to send message")
 }
 
+func userJoined(rtm *slack.RTM, msg slack.Msg) error {
+	last, err := getLastUser(msg.Channel)
+	if err != nil {
+		return err
+	}
+
+	return insertOrUpdate(ladder{
+		UserID:    msg.User,
+		ChannelID: msg.Channel,
+		Rank:      last.Rank + 1,
+	})
+}
+
+func userLeft(rtm *slack.RTM, msg slack.Msg) error {
+	users, err := getLadder(msg.Channel)
+	if err != nil {
+		return err
+	}
+
+	newUsers := make([]ladder, len(users)-1)
+
+	rank := int64(0)
+	for i := range users {
+		if users[i].UserID == msg.User {
+			if err := removeUser(users[i]); err != nil {
+				return err
+			}
+			continue
+		}
+
+		newUsers[rank] = users[i]
+		newUsers[rank].Rank = rank
+		rank++
+	}
+
+	return updateLadder(newUsers)
+}
+
 func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 	switch cmd {
 	case rankCommand:
@@ -339,6 +405,13 @@ func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 		return shuffle(rtm, evt.Msg)
 	case helpCommand:
 		return sendMessage(rtm, evt.Channel, cmds.Print())
+	}
+
+	switch evt.Msg.SubType {
+	case "channel_join":
+		return userJoined(rtm, evt.Msg)
+	case "channel_leave":
+		return userLeft(rtm, evt.Msg)
 	}
 
 	return nil
