@@ -4,3 +4,4 @@ import:
 - package: github.com/mattn/go-sqlite3
 - package: github.com/pkg/errors
 - package: github.com/jmoiron/sqlx
+- package: github.com/boltdb/bolt

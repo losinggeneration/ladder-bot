@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/nlopes/slack"
 	"github.com/pkg/errors"
 )
@@ -47,44 +45,10 @@ func (c commands) Print() string {
 	return cmds
 }
 
-var db *sqlx.DB
 var botID string
 
-func setup() error {
-	var err error
-	db, err = sqlx.Connect("sqlite3", "database.sql")
-	if err != nil {
-		return err
-	}
-
-	if err := createLadderTable(); err != nil {
-		return err
-	}
-
+func init() {
 	rand.Seed(time.Now().UnixNano())
-
-	return nil
-}
-
-func createLadderTable() error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS ladder (
-		id INTEGER NOT NULL PRIMARY KEY,
-		channel_id TEXT,
-		user_id TEXT,
-		rank INTEGER
-	)`)
-
-	return errors.Wrap(err, "unable to create table ladder")
-}
-
-func checkMessage(msg slack.Msg) command {
-	for k := range cmds {
-		if strings.Contains(msg.Text, string(k)) {
-			return k
-		}
-	}
-
-	return unknownCommand
 }
 
 type errNotFound struct{}
@@ -98,95 +62,18 @@ type ladder struct {
 	Rank      int64  `db:"rank"`
 }
 
-func getUser(userID, channelID string) (*ladder, error) {
-	l := []ladder{}
-	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE user_id=? AND channel_id=?`, userID, channelID)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to select from ladder")
-	}
-
-	if len(l) == 0 {
-		return nil, errors.Wrap(errNotFound{}, "unable to get user")
-	}
-
-	return &l[0], nil
-}
-
-func getUserAbove(channelID string, rank int64) (*ladder, error) {
-	l := []ladder{}
-	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? AND rank<=? ORDER BY rank DESC`, channelID, rank-1)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to select from ladder")
-	}
-
-	if len(l) == 0 {
-		return nil, errors.Wrap(errNotFound{}, "unable to get user above")
-	}
-
-	return &l[0], nil
-}
-
-func getLastUser(channelID string) (*ladder, error) {
-	l, err := getLadder(channelID)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(l) == 0 {
-		return nil, errors.Wrap(errNotFound{}, "unable to get user below")
-	}
-
-	return &l[len(l)-1], nil
-}
-
-func getLadder(channelID string) ([]ladder, error) {
-	l := []ladder{}
-	err := db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? ORDER BY rank`, channelID)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get ladder")
-	}
-
-	return l, nil
-}
-
-func clearLadder(channelID string) error {
-	_, err := db.Exec(`DELETE FROM ladder WHERE channel_id=?`, channelID)
-	return errors.Wrap(err, "unable to delete ladder group")
-}
-
-func removeUser(l ladder) error {
-	_, err := db.Exec(`DELETE FROM ladder WHERE channel_id=? AND user_id=?`, l.ChannelID, l.UserID)
-	return errors.Wrap(err, "unable to delete user from ladder")
-}
-
-func insertOrUpdate(l ladder) error {
-	existing, err := getUser(l.UserID, l.ChannelID)
-	if err != nil {
-		if _, ok := errors.Cause(err).(errNotFound); ok {
-			_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (channel_id, user_id, rank) VALUES(:channel_id, :user_id, :rank)`, &l)
-		} else {
-			return errors.Wrap(err, "unable to select from ladder")
-		}
-	} else {
-		existing.Rank = l.Rank
-		_, err = db.NamedExec(`INSERT OR REPLACE INTO ladder (id, channel_id, user_id, rank) VALUES(:id, :channel_id, :user_id, :rank)`, existing)
-	}
-
-	return errors.Wrap(err, "unable to insert/update into ladder")
-}
-
-func updateLadder(l []ladder) error {
-	for _, u := range l {
-		if err := insertOrUpdate(u); err != nil {
-			return err
+func checkMessage(msg slack.Msg) command {
+	for k := range cmds {
+		if strings.Contains(msg.Text, string(k)) {
+			return k
 		}
 	}
 
-	return nil
+	return unknownCommand
 }
 
-func rank(rtm *slack.RTM, msg slack.Msg) error {
-	u, err := getUser(msg.User, msg.Channel)
+func rank(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	u, err := db.getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -205,13 +92,13 @@ func rank(rtm *slack.RTM, msg slack.Msg) error {
 	return sendMessage(rtm, msg.Channel, message)
 }
 
-func challenge(rtm *slack.RTM, msg slack.Msg) error {
-	challenger, err := getUser(msg.User, msg.Channel)
+func challenge(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	challenger, err := db.getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
 
-	challenged, err := getUserAbove(msg.Channel, challenger.Rank)
+	challenged, err := db.getUserAbove(msg.Channel, challenger.Rank)
 	if err != nil {
 		if _, ok := errors.Cause(err).(errNotFound); ok {
 			return nil
@@ -234,8 +121,8 @@ func challenge(rtm *slack.RTM, msg slack.Msg) error {
 	return sendMessage(rtm, msg.Channel, message)
 }
 
-func won(rtm *slack.RTM, msg slack.Msg) error {
-	winner, err := getUser(msg.User, msg.Channel)
+func won(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	winner, err := db.getUser(msg.User, msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -245,18 +132,18 @@ func won(rtm *slack.RTM, msg slack.Msg) error {
 		return nil
 	}
 
-	loser, err := getUserAbove(msg.Channel, winner.Rank)
+	loser, err := db.getUserAbove(msg.Channel, winner.Rank)
 	if err != nil {
 		return err
 	}
 
 	winner.Rank, loser.Rank = loser.Rank, winner.Rank
 
-	if err := insertOrUpdate(*winner); err != nil {
+	if err := db.insertOrUpdate(*winner); err != nil {
 		return err
 	}
 
-	if err := insertOrUpdate(*loser); err != nil {
+	if err := db.insertOrUpdate(*loser); err != nil {
 		return err
 	}
 
@@ -264,8 +151,8 @@ func won(rtm *slack.RTM, msg slack.Msg) error {
 	return sendMessage(rtm, msg.Channel, message)
 }
 
-func board(rtm *slack.RTM, msg slack.Msg) error {
-	ladder, err := getLadder(msg.Channel)
+func board(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	ladder, err := db.getLadder(msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -287,8 +174,8 @@ func board(rtm *slack.RTM, msg slack.Msg) error {
 	return sendMessage(rtm, msg.Channel, message)
 }
 
-func shuffle(rtm *slack.RTM, msg slack.Msg) error {
-	if err := clearLadder(msg.Channel); err != nil {
+func shuffle(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	if err := db.clearLadder(msg.Channel); err != nil {
 		return err
 	}
 
@@ -311,7 +198,7 @@ func shuffle(rtm *slack.RTM, msg slack.Msg) error {
 					UserID:    member,
 					Rank:      r,
 				}
-				if err := insertOrUpdate(ranks[r]); err != nil {
+				if err := db.insertOrUpdate(ranks[r]); err != nil {
 					return err
 				}
 				break
@@ -319,7 +206,7 @@ func shuffle(rtm *slack.RTM, msg slack.Msg) error {
 		}
 	}
 
-	return board(rtm, msg)
+	return board(db, rtm, msg)
 }
 
 func getMembers(rtm *slack.RTM, channel string) ([]string, error) {
@@ -353,21 +240,21 @@ func sendMessage(rtm *slack.RTM, channel, text string) error {
 	return errors.Wrap(err, "unable to send message")
 }
 
-func userJoined(rtm *slack.RTM, msg slack.Msg) error {
-	last, err := getLastUser(msg.Channel)
+func userJoined(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	last, err := db.getLastUser(msg.Channel)
 	if err != nil {
 		return err
 	}
 
-	return insertOrUpdate(ladder{
+	return db.insertOrUpdate(ladder{
 		UserID:    msg.User,
 		ChannelID: msg.Channel,
 		Rank:      last.Rank + 1,
 	})
 }
 
-func userLeft(rtm *slack.RTM, msg slack.Msg) error {
-	users, err := getLadder(msg.Channel)
+func userLeft(db DB, rtm *slack.RTM, msg slack.Msg) error {
+	users, err := db.getLadder(msg.Channel)
 	if err != nil {
 		return err
 	}
@@ -377,7 +264,7 @@ func userLeft(rtm *slack.RTM, msg slack.Msg) error {
 	rank := int64(0)
 	for i := range users {
 		if users[i].UserID == msg.User {
-			if err := removeUser(users[i]); err != nil {
+			if err := db.removeUser(users[i]); err != nil {
 				return err
 			}
 			continue
@@ -388,30 +275,30 @@ func userLeft(rtm *slack.RTM, msg slack.Msg) error {
 		rank++
 	}
 
-	return updateLadder(newUsers)
+	return db.updateLadder(newUsers)
 }
 
-func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
+func runCommand(db DB, cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 	switch cmd {
 	case rankCommand:
-		return rank(rtm, evt.Msg)
+		return rank(db, rtm, evt.Msg)
 	case challengeCommand:
-		return challenge(rtm, evt.Msg)
+		return challenge(db, rtm, evt.Msg)
 	case wonCommand:
-		return won(rtm, evt.Msg)
+		return won(db, rtm, evt.Msg)
 	case boardCommand:
-		return board(rtm, evt.Msg)
+		return board(db, rtm, evt.Msg)
 	case shuffleCommand:
-		return shuffle(rtm, evt.Msg)
+		return shuffle(db, rtm, evt.Msg)
 	case helpCommand:
 		return sendMessage(rtm, evt.Channel, cmds.Print())
 	}
 
 	switch evt.Msg.SubType {
 	case "channel_join":
-		return userJoined(rtm, evt.Msg)
+		return userJoined(db, rtm, evt.Msg)
 	case "channel_leave":
-		return userLeft(rtm, evt.Msg)
+		return userLeft(db, rtm, evt.Msg)
 	}
 
 	return nil
@@ -419,11 +306,31 @@ func runCommand(cmd command, rtm *slack.RTM, evt *slack.MessageEvent) error {
 
 func main() {
 	debug := flag.Bool("debug", false, "enable debugging")
+	database := flag.String("database", "sqlite", "[memory, boltdb]")
 	flag.Parse()
 
-	if err := setup(); err != nil {
+	var (
+		db  DB
+		err error
+	)
+
+	switch *database {
+	case "sqlite":
+		db, err = NewSqlite()
+	case "boltdb":
+		db, err = NewBoltDB()
+	default:
+		log.Fatal("invalid database argument")
+	}
+
+	if err != nil {
 		log.Fatalf("%+v", err)
 	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	api := slack.New(accessToken)
 
@@ -439,6 +346,7 @@ func main() {
 
 	setDebug(*debug)
 	log.Println("started ", os.Args[0])
+	log.Println("using", *database, "for a database")
 
 	for {
 		select {
@@ -448,7 +356,7 @@ func main() {
 				Debugf("%#v", evt)
 				if evt.BotID == "" {
 					cmd := checkMessage(evt.Msg)
-					if err := runCommand(cmd, rtm, evt); err != nil {
+					if err := runCommand(db, cmd, rtm, evt); err != nil {
 						log.Printf("%+v", err)
 					}
 				}
