@@ -10,8 +10,8 @@ type sqlite struct {
 	db *sqlx.DB
 }
 
-func NewSqlite() (DB, error) {
-	db, err := sqlx.Connect("sqlite3", "database.sql")
+func NewSqlite(filename string) (DB, error) {
+	db, err := sqlx.Connect("sqlite3", filename)
 	if err != nil {
 		return nil, err
 	}

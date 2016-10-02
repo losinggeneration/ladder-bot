@@ -13,8 +13,8 @@ type boltdb struct {
 
 type boltLadder map[string]ladder
 
-func NewBoltDB() (DB, error) {
-	db, err := bolt.Open("database.db", 0600, nil)
+func NewBoltDB(filename string) (DB, error) {
+	db, err := bolt.Open(filename, 0600, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to open database.db")
 	}

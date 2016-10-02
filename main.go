@@ -30,6 +30,7 @@ func init() {
 func main() {
 	debug := flag.Bool("debug", false, "enable debugging")
 	database := flag.String("database", "sqlite", "[memory, boltdb]")
+	filename := flag.String("filename", "database.sql", "filename for file based databases")
 	flag.Parse()
 
 	var (
@@ -39,9 +40,9 @@ func main() {
 
 	switch *database {
 	case "sqlite":
-		db, err = NewSqlite()
+		db, err = NewSqlite(*filename)
 	case "boltdb":
-		db, err = NewBoltDB()
+		db, err = NewBoltDB(*filename)
 	default:
 		log.Fatal("invalid database argument")
 	}
