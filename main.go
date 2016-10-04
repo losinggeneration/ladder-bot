@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"math/rand"
@@ -27,26 +28,51 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func main() {
-	debug := flag.Bool("debug", false, "enable debugging")
-	database := flag.String("database", "sqlite", "[memory, boltdb]")
-	filename := flag.String("filename", "database.sql", "filename for file based databases")
-	flag.Parse()
-
-	var (
-		db  DB
-		err error
-	)
-
-	switch *database {
-	case "sqlite":
-		db, err = NewSqlite(*filename)
-	case "boltdb":
-		db, err = NewBoltDB(*filename)
-	default:
-		log.Fatal("invalid database argument")
+func transferData(input, output DB) error {
+	Debug("transfering data")
+	ladders, err := input.getLadders()
+	if err != nil {
+		return err
 	}
 
+	Debugf("Got ladders: %#v", ladders)
+	for _, ladder := range ladders {
+		ranks, err := input.getLadder(ladder)
+		if err != nil {
+			return err
+		}
+
+		Debugf("Got ranks: %#v", ranks)
+		if err := output.updateLadder(ranks); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func openDatabase(database, filename string) (DB, error) {
+	switch database {
+	case "sqlite":
+		return NewSqlite(filename)
+	case "boltdb":
+		return NewBoltDB(filename)
+	}
+
+	return nil, errors.New("invalid database argument")
+}
+
+func main() {
+	debug := flag.Bool("debug", false, "enable debugging")
+	database := flag.String("database", "sqlite", "[sqlite, boltdb]")
+	filename := flag.String("filename", "database.sql", "filename for file based databases")
+	transfer := flag.String("transfer", "", "[sqlite, boltdb] database to transfer to")
+	output := flag.String("output", "database.db", "filename for transfer to")
+	flag.Parse()
+
+	setDebug(*debug)
+
+	db, err := openDatabase(*database, *filename)
 	if err != nil {
 		log.Fatalf("%+v", err)
 	}
@@ -55,6 +81,24 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
+
+	if *transfer != "" {
+		out, err := openDatabase(*transfer, *output)
+		if err != nil {
+			log.Fatalf("%+v", err)
+		}
+		defer func() {
+			if err := out.Close(); err != nil {
+				log.Fatal(err)
+			}
+		}()
+
+		if err := transferData(db, out); err != nil {
+			log.Fatalf("%+v", err)
+		}
+
+		return
+	}
 
 	api := slack.New(accessToken)
 
@@ -68,7 +112,6 @@ func main() {
 
 	botID = auth.UserID
 
-	setDebug(*debug)
 	log.Println("started ", os.Args[0])
 	log.Println("using", *database, "for a database")
 

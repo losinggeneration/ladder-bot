@@ -82,6 +82,11 @@ func (s *sqlite) getLastUser(channelID string) (*ladder, error) {
 	return &l[len(l)-1], nil
 }
 
+func (s *sqlite) getLadders() ([]string, error) {
+	l := []string{}
+	return l, errors.Wrap(s.db.Select(&l, `SELECT channel_id FROM ladder GROUP BY channel_id`), "unable to get ladders")
+}
+
 func (s *sqlite) getLadder(channelID string) ([]ladder, error) {
 	l := []ladder{}
 	err := s.db.Select(&l, `SELECT id, channel_id, user_id, rank FROM ladder WHERE channel_id=? ORDER BY rank`, channelID)

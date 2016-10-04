@@ -16,7 +16,7 @@ type boltLadder map[string]ladder
 func NewBoltDB(filename string) (DB, error) {
 	db, err := bolt.Open(filename, 0600, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to open database.db")
+		return nil, errors.Wrapf(err, "unable to open %v", filename)
 	}
 
 	return &boltdb{db: db}, nil
@@ -82,6 +82,16 @@ func (b *boltdb) getLastUser(channelID string) (*ladder, error) {
 	}
 
 	return &l, nil
+}
+
+func (b *boltdb) getLadders() ([]string, error) {
+	buckets := make([]string, 0)
+	return buckets, errors.Wrap(b.db.View(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
+			buckets = append(buckets, string(name))
+			return nil
+		})
+	}), "unable to get buckets")
 }
 
 func (b *boltdb) getLadder(channelID string) ([]ladder, error) {
