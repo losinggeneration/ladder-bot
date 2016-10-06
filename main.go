@@ -24,6 +24,12 @@ type ladder struct {
 	Rank      int64  `db:"rank"`
 }
 
+type ladders []ladder
+
+func (l ladders) Less(i, j int) bool { return l[i].Rank < l[j].Rank }
+func (l ladders) Len() int           { return len(l) }
+func (l ladders) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }

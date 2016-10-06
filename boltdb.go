@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"sort"
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -10,8 +11,6 @@ import (
 type boltdb struct {
 	db *bolt.DB
 }
-
-type boltLadder map[string]ladder
 
 func NewBoltDB(filename string) (DB, error) {
 	db, err := bolt.Open(filename, 0600, nil)
@@ -95,7 +94,7 @@ func (b *boltdb) getLadders() ([]string, error) {
 }
 
 func (b *boltdb) getLadder(channelID string) ([]ladder, error) {
-	l := make([]ladder, 0)
+	l := make(ladders, 0)
 	err := b.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(channelID))
 		if bucket == nil {
@@ -119,6 +118,8 @@ func (b *boltdb) getLadder(channelID string) ([]ladder, error) {
 	if len(l) == 0 {
 		return nil, errors.Wrap(errNotFound{}, "ladder is empty")
 	}
+
+	sort.Sort(l)
 
 	return l, nil
 }
