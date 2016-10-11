@@ -1,5 +1,4 @@
-config.go
-database.sql
+ladder.db
 
 *~
 /vendor/

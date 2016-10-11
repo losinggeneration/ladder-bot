@@ -70,10 +70,11 @@ func openDatabase(database, filename string) (DB, error) {
 
 func main() {
 	debug := flag.Bool("debug", false, "enable debugging")
-	database := flag.String("database", "sqlite", "[sqlite, boltdb]")
-	filename := flag.String("filename", "database.sql", "filename for file based databases")
+	database := flag.String("database", "boltdb", "[sqlite, boltdb]")
+	filename := flag.String("filename", "ladder.db", "filename for file based databases")
 	transfer := flag.String("transfer", "", "[sqlite, boltdb] database to transfer to")
 	output := flag.String("output", "database.db", "filename for transfer to")
+	token := flag.String("token", "", "slack access token")
 	flag.Parse()
 
 	setDebug(*debug)
@@ -104,6 +105,10 @@ func main() {
 		}
 
 		return
+	}
+
+	if *token != "" {
+		accessToken = *token
 	}
 
 	api := slack.New(accessToken)
