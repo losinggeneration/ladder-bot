@@ -43,7 +43,7 @@ func (c commands) Print() string {
 
 func checkMessage(msg slack.Msg) command {
 	for k := range cmds {
-		if strings.Contains(msg.Text, string(k)) {
+		if strings.Contains(strings.ToLower(msg.Text), string(k)) {
 			return k
 		}
 	}
