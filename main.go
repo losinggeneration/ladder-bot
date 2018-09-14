@@ -1,12 +1,9 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"log"
-	"math/rand"
 	"os"
-	"time"
 
 	"github.com/nlopes/slack"
 )
@@ -17,69 +14,25 @@ type errNotFound struct{}
 
 func (errNotFound) Error() string { return "not found" }
 
-type ladder struct {
-	ID        int64  `db:"id"`
+type user struct {
+	ID        string `db:"id"`
 	ChannelID string `db:"channel_id"`
-	UserID    string `db:"user_id"`
-	Rank      int64  `db:"rank"`
+	Rating    Rank   `db:"rating"`
 }
 
-type ladders []ladder
-
-func (l ladders) Less(i, j int) bool { return l[i].Rank < l[j].Rank }
-func (l ladders) Len() int           { return len(l) }
-func (l ladders) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-func transferData(input, output DB) error {
-	Debug("transfering data")
-	ladders, err := input.getLadders()
-	if err != nil {
-		return err
-	}
-
-	Debugf("Got ladders: %#v", ladders)
-	for _, ladder := range ladders {
-		ranks, err := input.getLadder(ladder)
-		if err != nil {
-			return err
-		}
-
-		Debugf("Got ranks: %#v", ranks)
-		if err := output.updateLadder(ranks); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func openDatabase(database, filename string) (DB, error) {
-	switch database {
-	case "sqlite":
-		return NewSqlite(filename)
-	case "boltdb":
-		return NewBoltDB(filename)
-	}
-
-	return nil, errors.New("invalid database argument")
+func openDatabase(filename string) (DB, error) {
+	return NewBoltDB(filename)
 }
 
 func main() {
 	debug := flag.Bool("debug", false, "enable debugging")
-	database := flag.String("database", "boltdb", "[sqlite, boltdb]")
 	filename := flag.String("filename", "ladder.db", "filename for file based databases")
-	transfer := flag.String("transfer", "", "[sqlite, boltdb] database to transfer to")
-	output := flag.String("output", "database.db", "filename for transfer to")
 	token := flag.String("token", "", "slack access token")
 	flag.Parse()
 
 	setDebug(*debug)
 
-	db, err := openDatabase(*database, *filename)
+	db, err := openDatabase(*filename)
 	if err != nil {
 		log.Fatalf("%+v", err)
 	}
@@ -88,24 +41,6 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
-
-	if *transfer != "" {
-		out, err := openDatabase(*transfer, *output)
-		if err != nil {
-			log.Fatalf("%+v", err)
-		}
-		defer func() {
-			if err := out.Close(); err != nil {
-				log.Fatal(err)
-			}
-		}()
-
-		if err := transferData(db, out); err != nil {
-			log.Fatalf("%+v", err)
-		}
-
-		return
-	}
 
 	if *token != "" {
 		accessToken = *token
@@ -124,7 +59,6 @@ func main() {
 	botID = auth.UserID
 
 	log.Println("started ", os.Args[0])
-	log.Println("using", *database, "for a database")
 
 	for {
 		select {

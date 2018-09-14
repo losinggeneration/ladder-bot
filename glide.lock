@@ -1,14 +1,12 @@
 hash: 79e45bdd9a92946a1ea7b36338e4c2392044d3c4a6b0718de31e8b31fb78e9df
-updated: 2016-09-30T22:00:58.01152166-07:00
+updated: 2018-09-14T02:47:36.711009363-07:00
 imports:
-- name: github.com/Billups/sqlx
-  version: c21d7c47fe6ea72bcf7c2623ebeb1663122cf1a6
-  subpackages:
-  - reflectx
 - name: github.com/boltdb/bolt
   version: fff57c100f4dea1905678da7e90d92429dff2904
 - name: github.com/jmoiron/sqlx
   version: 05b81a7d5d38058e42148dc01f17daf4acba4640
+  subpackages:
+  - reflectx
 - name: github.com/mattn/go-sqlite3
   version: 4b0af852c17164dce48e6754e3094c55192e4934
 - name: github.com/nlopes/slack
@@ -19,4 +17,20 @@ imports:
   version: 0d8126fc6144eb5257485c59148128691e8ff849
   subpackages:
   - websocket
-testImports: []
+- name: golang.org/x/sys
+  version: ebe1bf3edb3325c393447059974de898d5133eb8
+  subpackages:
+  - unix
+testImports:
+- name: github.com/davecgh/go-spew
+  version: d8f796af33cc11cb798c1aaeb27a4ebc5099927d
+  subpackages:
+  - spew
+- name: github.com/pmezard/go-difflib
+  version: 792786c7400a136282c1664665ae0a8db921c6c2
+  subpackages:
+  - difflib
+- name: github.com/stretchr/testify
+  version: f35b8ab0b5a2cef36673838d662e249dd9c94686
+  subpackages:
+  - assert
